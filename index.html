@@ -62,7 +62,39 @@ async function cloudDelete(id){if(!sb||!sbSession)return;try{await sb.from('expe
 function fillTypes(){['type','filterType'].forEach(id=>{const el=$(id);if(id==='type')el.innerHTML=TYPES.map(x=>`<option>${x}</option>`).join('');else el.innerHTML='<option value="">Todos</option>'+TYPES.map(x=>`<option>${x}</option>`).join('')})}
 function clearForm(){ $('date').value=todayStr();['amount','merchant','concept'].forEach(id=>$(id).value='');$('photo').value='';$('photoMore').value='';$('photoList').innerHTML='';$('photoHint').textContent='Todavía no has añadido ninguna foto.';$('ocrStatus').classList.add('hidden');currentPhoto=null;photoFiles=[] }
 function parseAmount(text){const cleaned=text.replace(/\s/g,'');let ms=[...cleaned.matchAll(/(?:TOTAL|A\s*PAGAR|IMPORTE|TOTAL\s*EUR|TOTAL\s*€)[^\d]{0,12}(\d{1,6}(?:[.,]\d{2})?)/gi)];if(ms.length){let s=ms[ms.length-1][1];return parseFloat(s.includes(',')?s.replace(/\./g,'').replace(',','.'):s)}let nums=[...text.matchAll(/\b\d{1,5}[.,]\d{2}\b/g)].map(m=>parseFloat(m[0].replace('.','').replace(',','.'))).filter(n=>n>0&&n<100000);return nums.length?nums[nums.length-1]:''}
-function parseOCR(text){const lines=text.split(/\n+/).map(x=>x.trim()).filter(Boolean);let date='';const dm=text.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})\b/);if(dm){let y=dm[3].length===2?'20'+dm[3]:dm[3];date=`${y}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`};const total=parseAmount(text);const merchant=lines.slice(0,6).find(x=>/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(x)&&x.length>2&&!/ticket|factura|fecha/i.test(x))||'';if(date)$('date').value=date;if(total)$('amount').value=total.toFixed(2);if(merchant)$('merchant').value=merchant}
+function parseOCR(text){
+const lines=text.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+let date='';
+const dm=text.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})\b/);
+if(dm){let y=dm[3].length===2?'20'+dm[3]:dm[3];date=`${y}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`}
+const total=parseAmount(text);
+// Detectar primero cadenas de supermercados conocidos. Esto evita que el OCR
+// confunda un producto del ticket (p.ej. "solomillo de atun") con el comercio.
+const known=[
+ ['MERCADONA','Mercadona'],['CARREFOUR','Carrefour'],['DIA','DIA'],['DIA%','DIA'],
+ ['LIDL','Lidl'],['ALDI','Aldi'],['ALCAMPO','Alcampo'],['EROSKI','Eroski'],
+ ['CONSUM','Consum'],['AHORRAMAS','Ahorramas'],['HIPERCOR','Hipercor'],
+ ['EL CORTE INGLES','El Corte Inglés'],['BONPREU','Bonpreu'],['CAPRABO','Caprabo'],
+ ['FROIZ','Froiz'],['GADIS','Gadis'],['COVIRAN','Covirán'],['BM SUPERMERCADOS','BM Supermercados'],
+ ['SUPERSOL','Supersol'],['MAS','MAS'],['MASCOMA','Masymas']
+];
+const normalized=text.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+let merchant='';
+for(const [needle,label] of known){
+ const n=needle.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+ if(new RegExp('(^|\\s)'+n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'($|\\s|[%])','i').test(normalized)){merchant=label;break}
+}
+// Si no es una cadena conocida, buscar una línea de cabecera razonable,
+// penalizando descripciones largas de productos, números y precios.
+if(!merchant){
+ const candidates=lines.slice(0,10).filter(x=>/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(x)&&x.length>2&&!/ticket|factura|fecha|hora|total|subtotal|iva|nif|cif|importe/i.test(x)&&!/[€$]\s*\d|\d+[.,]\d{2}/.test(x));
+ candidates.sort((a,b)=>{const score=x=>(x.length<=30?3:0)+(x===x.toUpperCase()?2:0)-(x.length>45?4:0)-(x.split(/\s+/).length>6?2:0);return score(b)-score(a)});
+ merchant=candidates[0]||'';
+}
+if(date)$('date').value=date;
+if(total)$('amount').value=total.toFixed(2);
+if(merchant)$('merchant').value=merchant;
+}
 async function imageToDataURL(file){return new Promise((resolve,reject)=>{const img=new Image();const u=URL.createObjectURL(file);img.onload=()=>{URL.revokeObjectURL(u);resolve(img)};img.onerror=reject;img.src=u})}
 async function makeComposite(files){
   const imgs=[]; for(const f of files) imgs.push(await imageToDataURL(f));
