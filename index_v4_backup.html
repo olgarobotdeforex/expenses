@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icon.svg"><title>Mis Gastos</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#f3f4f6;--card:#fff;--text:#111827;--muted:#6b7280;--line:#e5e7eb;--blue:#2563eb;--red:#dc2626}
+*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;margin:0;background:var(--bg);color:var(--text)}.wrap{max-width:1100px;margin:auto;padding:14px}.card{background:var(--card);border-radius:18px;padding:18px;margin:12px 0;box-shadow:0 2px 12px #00000010}.hero{background:#111827;color:#fff}.hero h1{margin:0 0 5px;font-size:27px}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.field{display:flex;flex-direction:column;gap:6px}.field input,.field select{padding:12px;border:1px solid #d1d5db;border-radius:10px;font-size:16px;background:#fff}.btn{border:0;border-radius:12px;padding:12px 15px;font-weight:700;cursor:pointer}.primary{background:var(--blue);color:#fff}.secondary{background:#e5e7eb;color:#111827}.danger{background:#fee2e2;color:#991b1b}.small{padding:8px 10px;font-size:13px}.muted{color:var(--muted)}.big{font-size:28px;font-weight:800}.drop{border:2px dashed #9ca3af;border-radius:16px;padding:20px;text-align:center}.photo-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:10px 0}.photo-list{display:flex;gap:8px;overflow:auto;justify-content:center;flex-wrap:wrap;margin-top:10px}.photo-thumb{width:110px;height:110px;object-fit:cover;border-radius:10px;border:1px solid #d1d5db}.photo-thumb-wrap{position:relative}.photo-thumb-wrap button{position:absolute;right:-5px;top:-5px;width:25px;height:25px;border:0;border-radius:50%;background:#111827;color:white;font-weight:700;cursor:pointer}.thumb{max-width:220px;max-height:220px;border-radius:12px;margin-top:10px}.hidden{display:none!important}.status{padding:10px;border-radius:10px;background:#eff6ff;color:#1d4ed8;margin-top:10px}.tablewrap{overflow:auto}table{width:100%;border-collapse:collapse}th,td{padding:9px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}th{font-size:12px;color:var(--muted)}.bar{height:10px;background:#e5e7eb;border-radius:8px;overflow:hidden}.bar i{display:block;height:100%;background:#2563eb}.tabs{display:flex;gap:8px;overflow:auto;margin-bottom:12px}.tab{border:0;background:#e5e7eb;border-radius:999px;padding:10px 14px;font-weight:700;white-space:nowrap}.tab.active{background:#111827;color:white}.pill{padding:6px 9px;border-radius:999px;background:#f3f4f6;font-size:12px}.modal{position:fixed;inset:0;background:#0008;display:flex;align-items:flex-end;justify-content:center;z-index:10}.modalbox{background:#fff;width:min(700px,100%);max-height:92vh;overflow:auto;border-radius:22px 22px 0 0;padding:20px}.topline{display:flex;justify-content:space-between;align-items:center}.notice{padding:12px;border-radius:12px;background:#fffbeb;color:#92400e}.ok{padding:12px;border-radius:12px;background:#ecfdf5;color:#065f46}.error{padding:12px;border-radius:12px;background:#fef2f2;color:#991b1b}.chartbox{position:relative;height:300px}.photo-cell img{width:54px;height:54px;object-fit:cover;border-radius:8px}.search{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:10px;font-size:16px}.footer{font-size:12px;color:#6b7280;text-align:center;padding:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<section class="card hero"><h1>💶 Mis Gastos</h1><div>Foto del ticket → OCR → confirmar → informes → Excel</div><div id="syncState" style="margin-top:10px;font-size:13px;opacity:.9">Modo local</div></section>
+<div class="tabs"><button class="tab active" data-tab="new">➕ Nuevo</button><button class="tab" data-tab="list">📋 Gastos</button><button class="tab" data-tab="reports">📊 Informes</button><button class="tab" data-tab="settings">⚙️ Ajustes</button></div>
+
+<main id="new" class="panel">
+<section class="card"><h2>Nuevo ticket</h2><div class="drop"><input id="photo" type="file" accept="image/*" capture="environment" class="hidden"><input id="photoMore" type="file" accept="image/*" multiple class="hidden"><div class="photo-actions"><button type="button" class="btn primary" id="takePhoto">📷 Hacer foto</button><button type="button" class="btn secondary" id="addPhotos">🖼️ Añadir fotos</button></div><p class="muted">Si el ticket es largo, haz varias fotos (parte 1, parte 2, parte 3…). La app las une y las lee como un solo ticket.</p><div id="photoList" class="photo-list"></div><div id="photoHint" class="muted">Todavía no has añadido ninguna foto.</div></div><div id="ocrStatus" class="status hidden"></div>
+<div class="grid" style="margin-top:14px"><div class="field"><label>Fecha</label><input id="date" type="date"></div><div class="field"><label>Importe (€)</label><input id="amount" type="number" step="0.01" inputmode="decimal"></div><div class="field"><label>Comercio</label><input id="merchant" placeholder="Detectado automáticamente"></div><div class="field"><label>Concepto</label><input id="concept" placeholder="Ej. compra supermercado"></div><div class="field"><label>Tipo de gasto</label><select id="type"></select></div></div>
+<div class="row" style="margin-top:14px"><button class="btn primary" id="save">✓ Guardar gasto</button><button class="btn secondary" id="clear">Limpiar</button></div></section>
+<section class="card"><h2>Resumen de este mes</h2><div class="grid"><div><div class="muted">Total</div><div class="big" id="monthTotal">0,00 €</div></div><div><div class="muted">Tickets</div><div class="big" id="monthCount">0</div></div><div><div class="muted">Media</div><div class="big" id="monthAvg">0,00 €</div></div></div></section>
+</main>
+
+<main id="list" class="panel hidden">
+<section class="card"><div class="topline"><h2>Gastos registrados</h2><span class="pill" id="listCount">0</span></div><div class="grid"><div class="field"><label>Desde</label><input id="filterFrom" type="date"></div><div class="field"><label>Hasta</label><input id="filterTo" type="date"></div><div class="field"><label>Tipo</label><select id="filterType"><option value="">Todos</option></select></div></div><div style="margin:12px 0"><input id="search" class="search" placeholder="🔎 Buscar comercio, concepto o tipo..."></div><div class="row" style="margin-bottom:12px"><button class="btn secondary small" id="clearFilters">Quitar filtros</button><button class="btn primary small" id="xlsx">⬇️ Excel</button><button class="btn secondary small" id="csv">⬇️ CSV</button><button class="btn secondary small" id="backup">💾 Copia de seguridad</button><label class="btn secondary small" style="cursor:pointer">♻️ Restaurar<input id="restore" type="file" accept="application/json" class="hidden"></label></div><div class="tablewrap"><table><thead><tr><th>Foto</th><th>Fecha</th><th>Comercio</th><th>Importe</th><th>Concepto</th><th>Tipo</th><th></th></tr></thead><tbody id="tbody"></tbody></table></div></section>
+</main>
+
+<main id="reports" class="panel hidden">
+<section class="card"><h2>Informes</h2><div class="grid"><div class="field"><label>Periodo</label><select id="reportPeriod"><option value="month">Mes seleccionado</option><option value="year">Año seleccionado</option><option value="all">Todo</option></select></div><div class="field"><label>Mes</label><input id="reportMonth" type="month"></div><div class="field"><label>Año</label><input id="reportYear" type="number" min="2000" max="2100"></div></div><div class="grid" style="margin-top:14px"><div><div class="muted">Total</div><div class="big" id="reportTotal">0,00 €</div></div><div><div class="muted">Tickets</div><div class="big" id="reportCount">0</div></div><div><div class="muted">Media</div><div class="big" id="reportAvg">0,00 €</div></div></div></section>
+<section class="card"><h3>Gasto por tipo</h3><div class="chartbox"><canvas id="typeChart"></canvas></div></section><section class="card"><h3>Evolución mensual</h3><div class="chartbox"><canvas id="monthChart"></canvas></div></section><section class="card"><h3>Gasto por concepto</h3><div id="conceptReport"></div></section>
+</main>
+
+<main id="settings" class="panel hidden">
+<section class="card"><h2>⚙️ Ajustes y sincronización</h2><p>La app funciona sin nube. Para usarla en iPhone y PC con los mismos datos, puedes conectar una cuenta gratuita de Supabase.</p><div id="supabaseForm"><div class="field"><label>Supabase Project URL</label><input id="sbUrl" placeholder="https://xxxxx.supabase.co"></div><div class="field" style="margin-top:10px"><label>Supabase Publishable Key</label><input id="sbKey" placeholder="sb_publishable_..."></div><div class="row" style="margin-top:12px"><button class="btn primary" id="saveSb">Guardar conexión</button><button class="btn secondary" id="testSb">Probar conexión</button></div></div><div id="authBox" class="hidden"><hr><h3>Cuenta</h3><div class="field"><label>Email</label><input id="email" type="email"></div><div class="field" style="margin-top:8px"><label>Contraseña</label><input id="password" type="password"></div><div class="row" style="margin-top:10px"><button class="btn primary" id="signup">Crear cuenta</button><button class="btn secondary" id="login">Entrar</button><button class="btn danger" id="logout">Salir</button></div><p id="authMsg" class="muted"></p><button class="btn primary" id="syncNow">☁️ Sincronizar ahora</button></div></section>
+<section class="card"><h3>Datos</h3><p class="muted">Puedes hacer una copia completa en JSON. Incluye gastos y las fotos unidas de cada ticket.</p><button class="btn secondary" id="backup2">💾 Descargar copia completa</button></section>
+</main>
+<div class="footer">Mis Gastos · versión 2 · Los datos locales permanecen en este navegador.</div>
+</div>
+
+<div id="modal" class="modal hidden"><div class="modalbox"><div class="topline"><h2 id="modalTitle">Editar gasto</h2><button type="button" class="btn secondary" id="closeModal">✕</button></div><div id="editForm"></div></div></div>
+
+<script>
+const TYPES=['Alimentación','Vivienda','Transporte','Finca','Restaurantes','Compras','Viajes','Salud','Ocio','Servicios','Impuestos','Trabajo','Otros'];
+const DB_NAME='mis_gastos_db_v3',DB_VER=1; let db; let gastos=[]; let currentPhoto=null; let photoFiles=[]; let typeChart=null,monthChart=null; let sb=null; let sbSession=null;
+const $=id=>document.getElementById(id); const euro=n=>new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR'}).format(Number(n)||0); const todayStr=()=>new Date().toISOString().slice(0,10); const monthStr=()=>todayStr().slice(0,7);
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VER);r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains('expenses'))d.createObjectStore('expenses',{keyPath:'id'});if(!d.objectStoreNames.contains('photos'))d.createObjectStore('photos',{keyPath:'id'});};r.onsuccess=()=>{db=r.result;res()};r.onerror=()=>rej(r.error)})}
+const tx=(store,mode='readonly')=>db.transaction(store,mode).objectStore(store);
+function idbAll(store){return new Promise((res,rej)=>{const r=tx(store).getAll();r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+function idbPut(store,v){return new Promise((res,rej)=>{const r=tx(store,'readwrite').put(v);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+function idbDelete(store,id){return new Promise((res,rej)=>{const r=tx(store,'readwrite').delete(id);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+function money(v){return Number(v||0)}
+async function load(){gastos=(await idbAll('expenses')).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt);}
+async function photoBlob(id){return new Promise(res=>{const r=tx('photos').get(id);r.onsuccess=()=>res(r.result?.blob||null);r.onerror=()=>res(null)})}
+async function savePhoto(id,blob){if(blob)await idbPut('photos',{id,blob})}
+async function delExpense(id){await idbDelete('expenses',id);await idbDelete('photos',id);gastos=gastos.filter(g=>g.id!==id);renderAll();await cloudDelete(id)}
+async function cloudDelete(id){if(!sb||!sbSession)return;try{await sb.from('expenses').delete().eq('id',id)}catch(e){console.warn(e)}}
+function fillTypes(){['type','filterType'].forEach(id=>{const el=$(id);if(id==='type')el.innerHTML=TYPES.map(x=>`<option>${x}</option>`).join('');else el.innerHTML='<option value="">Todos</option>'+TYPES.map(x=>`<option>${x}</option>`).join('')})}
+function clearForm(){ $('date').value=todayStr();['amount','merchant','concept'].forEach(id=>$(id).value='');$('photo').value='';$('photoMore').value='';$('photoList').innerHTML='';$('photoHint').textContent='Todavía no has añadido ninguna foto.';$('ocrStatus').classList.add('hidden');currentPhoto=null;photoFiles=[] }
+function parseAmount(text){const cleaned=text.replace(/\s/g,'');let ms=[...cleaned.matchAll(/(?:TOTAL|A\s*PAGAR|IMPORTE|TOTAL\s*EUR|TOTAL\s*€)[^\d]{0,12}(\d{1,6}(?:[.,]\d{2})?)/gi)];if(ms.length){let s=ms[ms.length-1][1];return parseFloat(s.includes(',')?s.replace(/\./g,'').replace(',','.'):s)}let nums=[...text.matchAll(/\b\d{1,5}[.,]\d{2}\b/g)].map(m=>parseFloat(m[0].replace('.','').replace(',','.'))).filter(n=>n>0&&n<100000);return nums.length?nums[nums.length-1]:''}
+function parseOCR(text){
+const lines=text.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+let date='';
+const dm=text.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})\b/);
+if(dm){let y=dm[3].length===2?'20'+dm[3]:dm[3];date=`${y}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`}
+const total=parseAmount(text);
+// Detectar primero cadenas de supermercados conocidos. Esto evita que el OCR
+// confunda un producto del ticket (p.ej. "solomillo de atun") con el comercio.
+const known=[
+ ['MERCADONA','Mercadona'],['CARREFOUR','Carrefour'],['DIA','DIA'],['DIA%','DIA'],
+ ['LIDL','Lidl'],['ALDI','Aldi'],['ALCAMPO','Alcampo'],['EROSKI','Eroski'],
+ ['CONSUM','Consum'],['AHORRAMAS','Ahorramas'],['HIPERCOR','Hipercor'],
+ ['EL CORTE INGLES','El Corte Inglés'],['BONPREU','Bonpreu'],['CAPRABO','Caprabo'],
+ ['FROIZ','Froiz'],['GADIS','Gadis'],['COVIRAN','Covirán'],['BM SUPERMERCADOS','BM Supermercados'],
+ ['SUPERSOL','Supersol'],['MAS','MAS'],['MASCOMA','Masymas']
+];
+const normalized=text.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+let merchant='';
+for(const [needle,label] of known){
+ const n=needle.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+ if(new RegExp('(^|\\s)'+n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'($|\\s|[%])','i').test(normalized)){merchant=label;break}
+}
+// Si no es una cadena conocida, buscar una línea de cabecera razonable,
+// penalizando descripciones largas de productos, números y precios.
+if(!merchant){
+ const candidates=lines.slice(0,10).filter(x=>/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(x)&&x.length>2&&!/ticket|factura|fecha|hora|total|subtotal|iva|nif|cif|importe/i.test(x)&&!/[€$]\s*\d|\d+[.,]\d{2}/.test(x));
+ candidates.sort((a,b)=>{const score=x=>(x.length<=30?3:0)+(x===x.toUpperCase()?2:0)-(x.length>45?4:0)-(x.split(/\s+/).length>6?2:0);return score(b)-score(a)});
+ merchant=candidates[0]||'';
+}
+if(date)$('date').value=date;
+if(total)$('amount').value=total.toFixed(2);
+if(merchant)$('merchant').value=merchant;
+}
+async function imageToDataURL(file){return new Promise((resolve,reject)=>{const img=new Image();const u=URL.createObjectURL(file);img.onload=()=>{URL.revokeObjectURL(u);resolve(img)};img.onerror=reject;img.src=u})}
+async function makeComposite(files){
+  const imgs=[]; for(const f of files) imgs.push(await imageToDataURL(f));
+  const maxW=Math.max(...imgs.map(i=>i.naturalWidth||i.width));
+  const gap=18, maxH=12000;
+  const scaled=imgs.map(i=>{const w=i.naturalWidth||i.width,h=i.naturalHeight||i.height,scale=Math.min(1,maxW/w);return {i,w:Math.round(w*scale),h:Math.round(h*scale)}});
+  let totalH=scaled.reduce((a,x)=>a+x.h,0)+gap*(scaled.length-1);
+  let globalScale=totalH>maxH?maxH/totalH:1;
+  const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(maxW*globalScale));canvas.height=Math.max(1,Math.round(totalH*globalScale));
+  const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+  let y=0; for(const x of scaled){const w=x.w*globalScale,h=x.h*globalScale;ctx.drawImage(x.i,0,y,w,h);y+=h+gap*globalScale}
+  return await new Promise(r=>canvas.toBlob(r,'image/jpeg',0.88));
+}
+function renderPhotoList(){const box=$('photoList');box.innerHTML='';$('photoHint').textContent=photoFiles.length?`${photoFiles.length} foto${photoFiles.length===1?'':'s'} añadida${photoFiles.length===1?'':'s'}. Puedes añadir más partes.`:'Todavía no has añadido ninguna foto.';photoFiles.forEach((f,i)=>{const wrap=document.createElement('div');wrap.className='photo-thumb-wrap';const img=document.createElement('img');img.className='photo-thumb';img.src=URL.createObjectURL(f);const b=document.createElement('button');b.type='button';b.textContent='×';b.onclick=()=>{photoFiles.splice(i,1);renderPhotoList()};wrap.append(img,b);box.appendChild(wrap)})}
+async function processPhotos(){if(!photoFiles.length)return;currentPhoto=await makeComposite(photoFiles);$('ocrStatus').classList.remove('hidden');$('ocrStatus').textContent=`Leyendo ${photoFiles.length} foto${photoFiles.length===1?'':'s'} del ticket…`;try{const r=await Tesseract.recognize(currentPhoto,'spa+eng',{logger:m=>{if(m.status==='recognizing text')$('ocrStatus').textContent='Leyendo ticket: '+Math.round(m.progress*100)+'%'}});parseOCR(r.data.text);$('ocrStatus').textContent='Listo. He unido las fotos y leído el ticket. Revisa los datos y completa concepto/tipo.'}catch(e){console.error(e);$('ocrStatus').textContent='No pude leer el ticket automáticamente. Puedes rellenar los datos a mano.'}}
+async function addPhotoFiles(files){const incoming=[...files].filter(f=>f.type.startsWith('image/'));if(!incoming.length)return;photoFiles.push(...incoming);renderPhotoList();await processPhotos()}
+$('takePhoto').onclick=()=>$('photo').click();$('addPhotos').onclick=()=>$('photoMore').click();
+$('photo').onchange=async e=>{await addPhotoFiles(e.target.files);e.target.value=''};
+$('photoMore').onchange=async e=>{await addPhotoFiles(e.target.files);e.target.value=''};
+$('save').onclick=async()=>{const amount=money($('amount').value);if(!amount){alert('Introduce un importe válido.');return}const id=crypto.randomUUID();const g={id,date:$('date').value||todayStr(),merchant:$('merchant').value.trim(),amount,concept:$('concept').value.trim(),type:$('type').value,createdAt:Date.now(),updatedAt:Date.now()};await idbPut('expenses',g);if(currentPhoto)await savePhoto(id,currentPhoto);gastos.unshift(g);await cloudUpsert(g,currentPhoto);renderAll();clearForm();alert('Gasto guardado.');};
+$('clear').onclick=clearForm;
+async function editExpense(id){const g=gastos.find(x=>x.id===id);if(!g)return;const b=await photoBlob(id);$('editForm').innerHTML=`<div class="grid"><div class="field"><label>Fecha</label><input id="eDate" type="date" value="${g.date}"></div><div class="field"><label>Importe (€)</label><input id="eAmount" type="number" step="0.01" value="${g.amount}"></div><div class="field"><label>Comercio</label><input id="eMerchant" value="${esc(g.merchant)}"></div><div class="field"><label>Concepto</label><input id="eConcept" value="${esc(g.concept)}"></div><div class="field"><label>Tipo</label><select id="eType">${TYPES.map(x=>`<option ${x===g.type?'selected':''}>${x}</option>`).join('')}</select></div></div>${b?`<p><img class="thumb" src="${URL.createObjectURL(b)}"></p>`:''}<div class="row" style="margin-top:14px"><button class="btn primary" id="saveEdit">Guardar cambios</button><button class="btn danger" id="deleteEdit">Eliminar</button></div>`;$('modal').classList.remove('hidden');$('saveEdit').onclick=async()=>{Object.assign(g,{date:$('eDate').value,amount:money($('eAmount').value),merchant:$('eMerchant').value,concept:$('eConcept').value,type:$('eType').value,updatedAt:Date.now()});await idbPut('expenses',g);await cloudUpsert(g,null);await load();$('modal').classList.add('hidden');renderAll()};$('deleteEdit').onclick=async()=>{if(confirm('¿Eliminar este gasto?')){await delExpense(id);$('modal').classList.add('hidden')}}}
+function closeModal(){$('modal').classList.add('hidden')}$('closeModal').onclick=closeModal;$('modal').addEventListener('click',e=>{if(e.target===$('modal'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+function filtered(){const from=$('filterFrom').value,to=$('filterTo').value,t=$('filterType').value,q=$('search').value.toLowerCase().trim();return gastos.filter(g=>(!from||g.date>=from)&&(!to||g.date<=to)&&(!t||g.type===t)&&(!q||[g.merchant,g.concept,g.type,g.date].join(' ').toLowerCase().includes(q)))}
+async function renderList(){const arr=filtered();$('listCount').textContent=arr.length;$('tbody').innerHTML='';for(const g of arr){const tr=document.createElement('tr');const b=await photoBlob(g.id);tr.innerHTML=`<td class="photo-cell">${b?`<img src="${URL.createObjectURL(b)}">`:'—'}</td><td>${esc(g.date)}</td><td>${esc(g.merchant)}</td><td>${euro(g.amount)}</td><td>${esc(g.concept)}</td><td>${esc(g.type)}</td><td><button class="btn secondary small" data-edit="${g.id}">Editar</button></td>`;$('tbody').appendChild(tr)}document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editExpense(b.dataset.edit))}
+function monthExpenses(m){return gastos.filter(g=>g.date.startsWith(m))}
+function summary(){const m=monthExpenses(monthStr()),total=m.reduce((a,g)=>a+g.amount,0);$('monthTotal').textContent=euro(total);$('monthCount').textContent=m.length;$('monthAvg').textContent=euro(m.length?total/m.length:0)}
+function group(arr,key){return Object.entries(arr.reduce((o,g)=>{const k=g[key]||'Sin especificar';o[k]=(o[k]||0)+g.amount;return o},{})).sort((a,b)=>b[1]-a[1])}
+function selectedReport(){const p=$('reportPeriod').value;if(p==='month')return monthExpenses($('reportMonth').value||monthStr());if(p==='year'){const y=String($('reportYear').value||new Date().getFullYear());return gastos.filter(g=>g.date.startsWith(y+'-'))}return gastos}
+function renderReports(){const arr=selectedReport(),total=arr.reduce((a,g)=>a+g.amount,0);$('reportTotal').textContent=euro(total);$('reportCount').textContent=arr.length;$('reportAvg').textContent=euro(arr.length?total/arr.length:0);const tg=group(arr,'type');if(typeChart)typeChart.destroy();typeChart=new Chart($('typeChart'),{type:'bar',data:{labels:tg.map(x=>x[0]),datasets:[{label:'€',data:tg.map(x=>x[1])}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}});const months={};arr.forEach(g=>{const m=g.date.slice(0,7);months[m]=(months[m]||0)+g.amount});const mk=Object.keys(months).sort();if(monthChart)monthChart.destroy();monthChart=new Chart($('monthChart'),{type:'line',data:{labels:mk,datasets:[{label:'€',data:mk.map(k=>months[k]),tension:.25}]},options:{responsive:true,maintainAspectRatio:false}});const cg=group(arr,'concept');$('conceptReport').innerHTML=cg.length?cg.map(([k,v])=>`<div style="margin:10px 0"><div style="display:flex;justify-content:space-between"><span>${esc(k)}</span><b>${euro(v)}</b></div><div class="bar"><i style="width:${total?Math.min(100,v/total*100):0}%"></i></div></div>`).join(''):'<p class="muted">Sin datos.</p>'}
+function renderAll(){summary();renderList();renderReports()}
+function backupData(){return Promise.all([idbAll('expenses'),idbAll('photos')]).then(async([es,ps])=>{const photos=[];for(const p of ps){photos.push({id:p.id,type:p.blob.type,size:p.blob.size,data:Array.from(new Uint8Array(await p.blob.arrayBuffer()))})}return {version:2,exportedAt:new Date().toISOString(),expenses:es,photos}})}
+async function downloadBackup(){const data=await backupData();const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));a.download='mis_gastos_backup_'+todayStr()+'.json';a.click()}
+$('backup').onclick=downloadBackup;$('backup2').onclick=downloadBackup;
+$('restore').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());for(const g of d.expenses||[])await idbPut('expenses',g);for(const p of d.photos||[])await idbPut('photos',{id:p.id,blob:new Blob([new Uint8Array(p.data)],{type:p.type})});await load();renderAll();alert('Copia restaurada.')}catch(err){alert('La copia no es válida.')}};
+$('xlsx').onclick=()=>{const rows=filtered().map(g=>({Fecha:g.date,Comercio:g.merchant,Importe:g.amount,Concepto:g.concept,Tipo:g.type}));const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Gastos');XLSX.writeFile(wb,'mis_gastos.xlsx')};$('csv').onclick=()=>{const rows=[['Fecha','Comercio','Importe','Concepto','Tipo'],...filtered().map(g=>[g.date,g.merchant,g.amount,g.concept,g.type])];const c=rows.map(r=>r.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(';')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+c],{type:'text/csv;charset=utf-8'}));a.download='mis_gastos.csv';a.click()};
+['filterFrom','filterTo','filterType','search'].forEach(id=>$(id).addEventListener('input',renderList));$('clearFilters').onclick=()=>{['filterFrom','filterTo','search'].forEach(id=>$(id).value='');$('filterType').value='';renderList()};['reportPeriod','reportMonth','reportYear'].forEach(id=>$(id).addEventListener('input',renderReports));
+// tabs
+for(const b of document.querySelectorAll('.tab'))b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.panel').forEach(x=>x.classList.add('hidden'));$(b.dataset.tab).classList.remove('hidden');if(b.dataset.tab==='reports')renderReports();if(b.dataset.tab==='list')renderList()};
+// Supabase sync
+function sbConfig(){return {url:localStorage.getItem('sb_url')||'',key:localStorage.getItem('sb_key')||''}}
+function initSb(){const c=sbConfig();$('sbUrl').value=c.url;$('sbKey').value=c.key;if(c.url&&c.key){sb=window.supabase.createClient(c.url,c.key);$('authBox').classList.remove('hidden');$('syncState').textContent='☁️ Supabase configurado — inicia sesión en Ajustes';sb.auth.getSession().then(({data})=>{sbSession=data.session;$('syncState').textContent=sbSession?'☁️ Sincronización activa':'☁️ Configurado, sin sesión';})}}
+$('saveSb').onclick=()=>{localStorage.setItem('sb_url',$('sbUrl').value.trim());localStorage.setItem('sb_key',$('sbKey').value.trim());initSb();alert('Configuración guardada.')};$('testSb').onclick=async()=>{initSb();if(!sb){alert('Introduce URL y publishable key.');return}const {error}=await sb.from('expenses').select('id').limit(1);alert(error?('No funciona todavía: '+error.message):'Conexión correcta.')};
+$('signup').onclick=async()=>{if(!sb)return;const {error}=await sb.auth.signUp({email:$('email').value,password:$('password').value});$('authMsg').textContent=error?error.message:'Cuenta creada. Si pide confirmación, revisa el email.'};$('login').onclick=async()=>{if(!sb)return;const {data,error}=await sb.auth.signInWithPassword({email:$('email').value,password:$('password').value});$('authMsg').textContent=error?error.message:'Sesión iniciada.';sbSession=data?.session||null;updateSyncState()};$('logout').onclick=async()=>{if(sb)await sb.auth.signOut();sbSession=null;updateSyncState()};
+function updateSyncState(){$('syncState').textContent=sbSession?'☁️ Sincronización activa':'Modo local'}
+async function cloudUpsert(g,blob){if(!sb||!sbSession)return;try{await sb.from('expenses').upsert({id:g.id,user_id:sbSession.user.id,date:g.date,merchant:g.merchant,amount:g.amount,concept:g.concept,type:g.type,updated_at:new Date().toISOString()});if(blob){const path=sbSession.user.id+'/'+g.id+'.jpg';await sb.storage.from('receipts').upload(path,blob,{upsert:true,contentType:blob.type});await sb.from('expenses').update({photo_path:path}).eq('id',g.id)}}catch(e){console.warn('Sync:',e)}}
+$('syncNow').onclick=async()=>{if(!sb||!sbSession){alert('Primero configura Supabase e inicia sesión.');return}for(const g of gastos)await cloudUpsert(g,null);alert('Sincronización enviada. Para una primera importación desde la nube se puede añadir en la siguiente versión.')};
+(async()=>{fillTypes();$('date').value=todayStr();$('reportMonth').value=monthStr();$('reportYear').value=new Date().getFullYear();await openDB();await load();initSb();renderAll();})();
+</script>
+</body></html>
