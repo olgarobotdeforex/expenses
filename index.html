@@ -123,6 +123,13 @@ function renderPhotoList(){const box=$('photoList');box.innerHTML='';$('photoHin
 async function processPhotos(){if(!photoFiles.length)return;currentPhoto=await makeComposite(photoFiles);$('ocrStatus').classList.remove('hidden');$('ocrStatus').textContent=`Preparando ${photoFiles.length} foto${photoFiles.length===1?'':'s'}…`;try{let all='';for(let i=0;i<photoFiles.length;i++){const img=await preprocessForOCR(photoFiles[i]);$('ocrStatus').textContent=`Leyendo parte ${i+1} de ${photoFiles.length}…`;const r=await Tesseract.recognize(img,'spa+eng',{logger:m=>{if(m.status==='recognizing text')$('ocrStatus').textContent=`Leyendo parte ${i+1}/${photoFiles.length}: ${Math.round(m.progress*100)}%`},tessedit_pageseg_mode:6});all+=`\n${r.data.text}\n`}parseOCR(all);if(!all.trim())$('ocrStatus').textContent='⚠️ No se pudo leer texto del ticket. Puedes rellenarlo manualmente.'}catch(e){console.error(e);$('ocrStatus').textContent='⚠️ No pude leer el ticket automáticamente. Revisa los datos o rellénalos a mano.'}}
 function setManualMode(on){manualMode=on;$('photoDrop').classList.toggle('hidden',on);$('manualHint').classList.toggle('hidden',!on);$('entryTitle').textContent=on?'Nuevo gasto manual':'Nuevo ticket';$('manualMode').textContent=on?'📷 Añadir ticket':'✍️ Gasto manual';if(on){$('ocrStatus').classList.add('hidden');currentPhoto=null;photoFiles=[];$('photo').value='';$('photoMore').value='';$('photoList').innerHTML='';$('photoHint').textContent='Todavía no has añadido ninguna foto.'}}
 $('manualMode').onclick=()=>setManualMode(!manualMode);
+async function addPhotoFiles(files){
+  const incoming=Array.from(files||[]).filter(f=>f && f.type && f.type.startsWith('image/'));
+  if(!incoming.length)return;
+  photoFiles.push(...incoming);
+  renderPhotoList();
+  await processPhotos();
+}
 $('takePhoto').onclick=()=>$('photo').click();$('addPhotos').onclick=()=>$('photoMore').click();
 $('photo').onchange=async e=>{await addPhotoFiles(e.target.files);e.target.value=''};
 $('photoMore').onchange=async e=>{await addPhotoFiles(e.target.files);e.target.value=''};
