@@ -159,39 +159,17 @@ $('signup').onclick=async()=>{if(!sb){$('authMsg').textContent='Primero guarda y
 $('login').onclick=async()=>{if(!sb)return;const {data,error}=await sb.auth.signInWithPassword({email:$('email').value,password:$('password').value});$('authMsg').textContent=error?error.message:'Sesión iniciada.';sbSession=data?.session||null;updateSyncState();if(sbSession)await syncBidirectional()};
 $('logout').onclick=async()=>{if(sb)await sb.auth.signOut();sbSession=null;updateSyncState()};
 function updateSyncState(msg){$('syncState').innerHTML=sbSession?'<span class="syncdot ok"></span>☁️ Sincronización activa'+(msg?' — '+esc(msg):''):'<span class="syncdot"></span>Modo local'}
-async function cloudUpsert(g,blob){if(!sb||!sbSession)return false;try{const row={id:g.id,user_id:sbSession.user.id,date:g.date,merchant:g.merchant,amount:g.amount,concept:g.concept,type:g.type,updated_at:new Date(g.updatedAt||Date.now()).toISOString(),photo_path:g.photoPath||null};let {error}=await sb.from('expenses').upsert(row,{onConflict:'id'});if(error)throw error;if(blob){const path=sbSession.user.id+'/'+g.id+'.jpg';const up=await sb.storage.from('receipts').upload(path,blob,{upsert:true,contentType:blob.type||'image/jpeg'});if(up.error)throw up.error;const u=await sb.from('expenses').update({photo_path:path}).eq('id',g.id);if(u.error)throw u.error;g.photoPath=path;await idbPut('expenses',g)}return true}catch(e){console.warn('Sync up:',e);return false}}
+async function cloudUpsert(g,blob){if(!sb||!sbSession)return false;try{const row={id:g.id,user_id:sbSession.user.id,date:g.date,merchant:g.merchant,amount:g.amount,concept:g.concept,type:g.type,updated_at:new Date(g.updatedAt||Date.now()).toISOString(),photo_path:g.photoPath||null};const result=await sb.from('expenses').upsert(row,{onConflict:'id'});if(result.error)throw result.error;if(blob){const path=sbSession.user.id+'/'+g.id+'.jpg';const up=await sb.storage.from('receipts').upload(path,blob,{upsert:true,contentType:blob.type||'image/jpeg'});if(up.error)throw up.error;const u=await sb.from('expenses').update({photo_path:path}).eq('id',g.id);if(u.error)throw u.error;g.photoPath=path;await idbPut('expenses',g)}return true}catch(e){const detail=e?.message||e?.details||String(e);console.error('Sync up:',e);updateSyncState('ERROR al subir '+g.id+': '+detail);return false}}
 async function cloudDelete(id){if(!sb||!sbSession)return;try{await sb.from('expenses').delete().eq('id',id)}catch(e){console.warn('Sync delete:',e)}}
 async function downloadCloudPhoto(path){if(!path||!sb)return null;const {data,error}=await sb.storage.from('receipts').download(path);if(error)return null;return data}
-function timeMs(v){if(v===null||v===undefined||v==='')return 0;if(typeof v==='number')return v;const n=Number(v);if(Number.isFinite(n)&&n>0)return n;const d=Date.parse(v);return Number.isFinite(d)?d:0}
-async function fetchAllCloudExpenses(){
- const all=[];const pageSize=500;let from=0;
- while(true){const {data,error}=await sb.from('expenses').select('*').eq('user_id',sbSession.user.id).order('updated_at',{ascending:true}).range(from,from+pageSize-1);if(error)throw error;const rows=data||[];all.push(...rows);if(rows.length<pageSize)break;from+=pageSize;}
- return all;
-}
 async function syncBidirectional(){if(!sb||!sbSession)return;updateSyncState('sincronizando…');try{
- // Refrescar primero el almacén local para no sincronizar una lista antigua.
- await load();
- const remote=await fetchAllCloudExpenses();
- const localRows=await idbAll('expenses');
- const localMap=new Map(localRows.map(g=>[String(g.id),g]));
- const remoteIds=new Set();
- for(const r of remote){
-   const rid=String(r.id);remoteIds.add(rid);const local=localMap.get(rid);
-   const cloudTime=timeMs(r.updated_at);const localTime=timeMs(local?.updatedAt);
-   if(!local || cloudTime>localTime){
-     const stamp=cloudTime||Date.now();
-     const g={id:r.id,date:r.date,merchant:r.merchant||'',amount:Number(r.amount)||0,concept:r.concept||'',type:r.type||'Otros',createdAt:local?.createdAt||stamp,updatedAt:stamp,photoPath:r.photo_path||null};
-     await idbPut('expenses',g);
-     if(r.photo_path){const existingPhoto=await photoBlob(g.id);if(!existingPhoto){const b=await downloadCloudPhoto(r.photo_path);if(b)await savePhoto(g.id,b)}}
-   }else if(localTime>cloudTime){
-     const ok=await cloudUpsert(local,await photoBlob(local.id));if(!ok)throw new Error('No se pudo subir el gasto local '+String(local.id));
-   }
- }
- // Subir únicamente los registros locales que realmente no estén en la nube.
- for(const g of localRows){if(!remoteIds.has(String(g.id))){const ok=await cloudUpsert(g,await photoBlob(g.id));if(!ok)throw new Error('No se pudo subir el gasto local '+String(g.id));}}
- await load();renderAll();updateSyncState('actualizada ('+remote.length+' gastos en la nube)');
- }catch(e){console.error('Sync bidirectional:',e);updateSyncState('error: '+(e?.message||'revisa conexión/permisos'));}}
-
+ const {data:remote,error}=await sb.from('expenses').select('*').eq('user_id',sbSession.user.id);if(error)throw error;
+ const localMap=new Map(gastos.map(g=>[g.id,g]));
+ for(const r of remote||[]){const local=localMap.get(r.id);const cloudTime=new Date(r.updated_at||0).getTime();const localTime=Number(local?.updatedAt||0);if(!local||cloudTime>localTime){const g={id:r.id,date:r.date,merchant:r.merchant||'',amount:Number(r.amount)||0,concept:r.concept||'',type:r.type||'Otros',createdAt:local?.createdAt||cloudTime||Date.now(),updatedAt:cloudTime||Date.now(),photoPath:r.photo_path||null};await idbPut('expenses',g);if(r.photo_path){const existingPhoto=await photoBlob(g.id);if(!existingPhoto){const b=await downloadCloudPhoto(r.photo_path);if(b)await savePhoto(g.id,b)}}}else if(localTime>cloudTime){await cloudUpsert(local,null)}}
+ // Upload local records that are missing remotely
+ const remoteIds=new Set((remote||[]).map(r=>r.id));for(const g of gastos){if(!remoteIds.has(g.id)){const b=await photoBlob(g.id);const ok=await cloudUpsert(g,b);if(!ok)throw new Error('No se pudo subir el gasto local '+g.id+'. Mira el mensaje de error mostrado arriba.')}}
+ await load();renderAll();updateSyncState('actualizada ('+(remote||[]).length+' registros de la nube)');
+ }catch(e){console.warn('Sync bidirectional:',e);updateSyncState('ERROR de sincronización: '+(e?.message||String(e)))}}
 $('syncNow').onclick=async()=>{if(!sb||!sbSession){alert('Primero configura Supabase e inicia sesión.');return}await syncBidirectional();alert('Sincronización terminada.')};
 (async()=>{fillTypes();$('date').value=todayStr();$('reportMonth').value=monthStr();$('reportYear').value=new Date().getFullYear();await openDB();await load();initSb();renderAll();})();
 </script>
