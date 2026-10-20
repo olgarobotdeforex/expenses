@@ -38,14 +38,14 @@
 <section class="card"><h2>⚙️ Ajustes y sincronización</h2><p>Para que iPhone y PC tengan exactamente los mismos gastos, conecta Supabase. Una vez iniciada la sesión, la app sincroniza automáticamente al entrar, guardar, editar y al pulsar sincronizar.</p><div id="supabaseForm"><div class="field"><label>Supabase Project URL</label><input id="sbUrl" placeholder="https://xxxxx.supabase.co"></div><div class="field" style="margin-top:10px"><label>Supabase Publishable Key</label><input id="sbKey" placeholder="sb_publishable_..."></div><div class="row" style="margin-top:12px"><button class="btn primary" id="saveSb">Guardar conexión</button><button class="btn secondary" id="testSb">Probar conexión</button></div></div><div id="authBox" class="hidden"><hr><h3>Cuenta</h3><div class="field"><label>Email</label><input id="email" type="email"></div><div class="field" style="margin-top:8px"><label>Contraseña</label><input id="password" type="password"></div><div class="row" style="margin-top:10px"><button class="btn primary" id="signup">Crear cuenta</button><button class="btn secondary" id="login">Entrar</button><button class="btn danger" id="logout">Salir</button></div><p id="authMsg" class="muted"></p><button class="btn primary" id="syncNow">☁️ Sincronizar ahora</button></div></section>
 <section class="card"><h3>Datos</h3><p class="muted">Puedes hacer una copia completa en JSON. Incluye gastos y las fotos unidas de cada ticket.</p><button class="btn secondary" id="backup2">💾 Descargar copia completa</button></section>
 </main>
-<div class="footer">Mis Gastos · versión 5.1 · diagnóstico de sincronización.</div>
+<div class="footer">Mis Gastos · versión 5 · OCR mejorado y sincronización bidireccional.</div>
 </div>
 
 <div id="modal" class="modal hidden"><div class="modalbox"><div class="topline"><h2 id="modalTitle">Editar gasto</h2><button type="button" class="btn secondary" id="closeModal">✕</button></div><div id="editForm"></div></div></div><div id="ticketViewer" class="ticket-viewer hidden"><button id="ticketClose" class="ticket-close" type="button">×</button><img id="ticketViewerImg" alt="Ticket"><div class="ticket-help">Pulsa sobre el ticket para ampliar/reducir</div></div>
 
 <script>
 const TYPES=['Alimentación','Vivienda','Transporte','Finca','Restaurantes','Compras','Viajes','Salud','Ocio','Servicios','Impuestos','Trabajo','Otros'];
-const DB_NAME='mis_gastos_db_v3',DB_VER=1; let db; let gastos=[]; let currentPhoto=null; let photoFiles=[]; let manualMode=false; let typeChart=null,monthChart=null; let sb=null; let sbSession=null; let lastSyncError='';
+const DB_NAME='mis_gastos_db_v3',DB_VER=1; let db; let gastos=[]; let currentPhoto=null; let photoFiles=[]; let manualMode=false; let typeChart=null,monthChart=null; let sb=null; let sbSession=null;
 const $=id=>document.getElementById(id); const euro=n=>new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR'}).format(Number(n)||0); const todayStr=()=>new Date().toISOString().slice(0,10); const monthStr=()=>todayStr().slice(0,7);
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VER);r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains('expenses'))d.createObjectStore('expenses',{keyPath:'id'});if(!d.objectStoreNames.contains('photos'))d.createObjectStore('photos',{keyPath:'id'});};r.onsuccess=()=>{db=r.result;res()};r.onerror=()=>rej(r.error)})}
@@ -159,52 +159,17 @@ $('signup').onclick=async()=>{if(!sb){$('authMsg').textContent='Primero guarda y
 $('login').onclick=async()=>{if(!sb)return;const {data,error}=await sb.auth.signInWithPassword({email:$('email').value,password:$('password').value});$('authMsg').textContent=error?error.message:'Sesión iniciada.';sbSession=data?.session||null;updateSyncState();if(sbSession)await syncBidirectional()};
 $('logout').onclick=async()=>{if(sb)await sb.auth.signOut();sbSession=null;updateSyncState()};
 function updateSyncState(msg){$('syncState').innerHTML=sbSession?'<span class="syncdot ok"></span>☁️ Sincronización activa'+(msg?' — '+esc(msg):''):'<span class="syncdot"></span>Modo local'}
-async function cloudUpsert(g,blob){if(!sb||!sbSession){lastSyncError='No hay sesión activa de Supabase';return false}try{const row={id:g.id,user_id:sbSession.user.id,date:g.date,merchant:g.merchant,amount:g.amount,concept:g.concept,type:g.type,updated_at:new Date(g.updatedAt||Date.now()).toISOString(),photo_path:g.photoPath||null};const result=await sb.from('expenses').upsert(row,{onConflict:'id'});if(result.error)throw result.error;if(blob){const path=sbSession.user.id+'/'+g.id+'.jpg';const up=await sb.storage.from('receipts').upload(path,blob,{upsert:true,contentType:blob.type||'image/jpeg'});if(up.error)throw up.error;const u=await sb.from('expenses').update({photo_path:path}).eq('id',g.id);if(u.error)throw u.error;g.photoPath=path;await idbPut('expenses',g)}lastSyncError='';return true}catch(e){const detail=[e?.message,e?.details,e?.hint,e?.code].filter(Boolean).join(' | ')||String(e);lastSyncError=detail;console.error('Sync up:',e);return false}}
+async function cloudUpsert(g,blob){if(!sb||!sbSession)return false;try{const row={id:g.id,user_id:sbSession.user.id,date:g.date,merchant:g.merchant,amount:g.amount,concept:g.concept,type:g.type,updated_at:new Date(g.updatedAt||Date.now()).toISOString(),photo_path:g.photoPath||null};let {error}=await sb.from('expenses').upsert(row,{onConflict:'id'});if(error)throw error;if(blob){const path=sbSession.user.id+'/'+g.id+'.jpg';const up=await sb.storage.from('receipts').upload(path,blob,{upsert:true,contentType:blob.type||'image/jpeg'});if(up.error)throw up.error;const u=await sb.from('expenses').update({photo_path:path}).eq('id',g.id);if(u.error)throw u.error;g.photoPath=path;await idbPut('expenses',g)}return true}catch(e){console.warn('Sync up:',e);return false}}
 async function cloudDelete(id){if(!sb||!sbSession)return;try{await sb.from('expenses').delete().eq('id',id)}catch(e){console.warn('Sync delete:',e)}}
 async function downloadCloudPhoto(path){if(!path||!sb)return null;const {data,error}=await sb.storage.from('receipts').download(path);if(error)return null;return data}
-async function syncBidirectional(){
- if(!sb||!sbSession)return;
- updateSyncState('sincronizando…');
- try{
-  // Leer todos los registros visibles para la sesión, por páginas.
-  let remote=[]; let from=0; const pageSize=500;
-  while(true){
-   const {data,error}=await sb.from('expenses').select('*').eq('user_id',sbSession.user.id).order('updated_at',{ascending:true}).range(from,from+pageSize-1);
-   if(error)throw new Error('LECTURA Supabase: '+[error.message,error.details,error.hint,error.code].filter(Boolean).join(' | '));
-   const batch=data||[]; remote.push(...batch);
-   if(batch.length<pageSize)break;
-   from+=pageSize;
-  }
-  const localRecords=await idbAll('expenses');
-  const localMap=new Map(localRecords.map(g=>[g.id,g]));
-  const remoteIds=new Set(remote.map(r=>String(r.id)));
-  let downloaded=0,uploaded=0,failed=0;
-  for(const r of remote){
-   const local=localMap.get(r.id);
-   const cloudTime=Date.parse(r.updated_at||'')||0;
-   const localTime=Number(local?.updatedAt)||0;
-   if(!local || cloudTime>localTime){
-    const g={id:r.id,date:r.date,merchant:r.merchant||'',amount:Number(r.amount)||0,concept:r.concept||'',type:r.type||'Otros',createdAt:local?.createdAt||cloudTime||Date.now(),updatedAt:cloudTime||Date.now(),photoPath:r.photo_path||null};
-    await idbPut('expenses',g); localMap.set(g.id,g); downloaded++;
-    if(r.photo_path && !(await photoBlob(g.id))){const b=await downloadCloudPhoto(r.photo_path);if(b)await savePhoto(g.id,b)}
-   } else if(localTime>cloudTime){
-    const ok=await cloudUpsert(local,null); if(ok)uploaded++; else failed++;
-   }
-  }
-  // Subir locales que no aparecen en la nube para esta sesión.
-  for(const g of localMap.values()){
-   if(!remoteIds.has(String(g.id))){
-    const b=await photoBlob(g.id); const ok=await cloudUpsert(g,b);
-    if(ok){uploaded++;remoteIds.add(String(g.id));}else{failed++;throw new Error('No se pudo subir el gasto local '+g.id+'. Detalle de Supabase: '+(lastSyncError||'sin detalle'))}
-   }
-  }
-  await load();renderAll();
-  updateSyncState('actualizada ('+remoteIds.size+' en nube; '+downloaded+' descargados, '+uploaded+' subidos)'+(failed?' — '+failed+' fallos':''));
- }catch(e){
-  const detail=e?.message||String(e); console.error('Sync bidirectional:',e);
-  updateSyncState('ERROR: '+detail);
- }
-}
+async function syncBidirectional(){if(!sb||!sbSession)return;updateSyncState('sincronizando…');try{
+ const {data:remote,error}=await sb.from('expenses').select('*').eq('user_id',sbSession.user.id);if(error)throw error;
+ const localMap=new Map(gastos.map(g=>[g.id,g]));
+ for(const r of remote||[]){const local=localMap.get(r.id);const cloudTime=new Date(r.updated_at||0).getTime();const localTime=Number(local?.updatedAt||0);if(!local||cloudTime>localTime){const g={id:r.id,date:r.date,merchant:r.merchant||'',amount:Number(r.amount)||0,concept:r.concept||'',type:r.type||'Otros',createdAt:local?.createdAt||cloudTime||Date.now(),updatedAt:cloudTime||Date.now(),photoPath:r.photo_path||null};await idbPut('expenses',g);if(r.photo_path){const existingPhoto=await photoBlob(g.id);if(!existingPhoto){const b=await downloadCloudPhoto(r.photo_path);if(b)await savePhoto(g.id,b)}}}else if(localTime>cloudTime){await cloudUpsert(local,null)}}
+ // Upload local records that are missing remotely
+ const remoteIds=new Set((remote||[]).map(r=>r.id));for(const g of gastos){if(!remoteIds.has(g.id)){const b=await photoBlob(g.id);await cloudUpsert(g,b)}}
+ await load();renderAll();updateSyncState('actualizada');
+ }catch(e){console.warn('Sync bidirectional:',e);updateSyncState('error de sincronización')}}
 $('syncNow').onclick=async()=>{if(!sb||!sbSession){alert('Primero configura Supabase e inicia sesión.');return}await syncBidirectional();alert('Sincronización terminada.')};
 (async()=>{fillTypes();$('date').value=todayStr();$('reportMonth').value=monthStr();$('reportYear').value=new Date().getFullYear();await openDB();await load();initSb();renderAll();})();
 </script>
