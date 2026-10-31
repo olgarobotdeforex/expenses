@@ -218,7 +218,7 @@ async function syncBidirectional(){
       if(!remoteIds.has(g.id)){
         const b=await photoBlob(g.id);
         const ok=await cloudUpsert(g,b);
-        if(!ok)throw new Error('No se pudo subir el gasto '+(g.concept||g.id)+'. Revisa el detalle que aparece en el estado de sincronización.');
+        if(!ok)throw new Error($('syncState').textContent);
       }
     }
     await load();renderAll();updateSyncState('sincronización correcta · '+gastos.length+' gastos locales');return true;
