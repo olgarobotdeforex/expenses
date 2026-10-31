@@ -210,7 +210,7 @@ async function syncBidirectional(){
         if(r.photo_path&&!local){const b=await downloadCloudPhoto(r.photo_path);if(b)await savePhoto(g.id,b);}
       }else if(localTime>cloudTime){
         const ok=await cloudUpsert(local,null);
-        if(!ok)throw new Error('No se pudo subir el gasto '+(local.concept||local.id)+'. Revisa el detalle que aparece en el estado de sincronización.');
+        if(!ok)throw new Error($('syncState').textContent);
       }
     }
     const remoteIds=new Set((remote||[]).map(r=>r.id));
