@@ -148,7 +148,24 @@ function selectedReport(){const p=$('reportPeriod').value;if(p==='month')return 
 function renderReports(){const p=$('reportPeriod').value;$('customReportDates').style.display=p==='custom'?'grid':'none';$('reportMonth').disabled=p!=='month';$('reportYear').disabled=p!=='year';const arr=selectedReport(),total=arr.reduce((a,g)=>a+g.amount,0);$('reportTotal').textContent=euro(total);$('reportCount').textContent=arr.length;$('reportAvg').textContent=euro(arr.length?total/arr.length:0);const tg=group(arr,'type');const palette=['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0891b2','#db2777','#65a30d','#ea580c','#4f46e5','#0d9488','#9333ea'];if(typeChart)typeChart.destroy();typeChart=new Chart($('typeChart'),{type:'bar',data:{labels:tg.map(x=>x[0]),datasets:[{label:'€',data:tg.map(x=>x[1]),backgroundColor:tg.map((_,i)=>palette[i%palette.length]),borderColor:tg.map((_,i)=>palette[i%palette.length]),borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}});const months={};arr.forEach(g=>{const m=g.date.slice(0,7);months[m]=(months[m]||0)+g.amount});const mk=Object.keys(months).sort();if(monthChart)monthChart.destroy();monthChart=new Chart($('monthChart'),{type:'line',data:{labels:mk,datasets:[{label:'€',data:mk.map(k=>months[k]),tension:.25,borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.12)',pointBackgroundColor:mk.map((_,i)=>palette[i%palette.length]),pointBorderColor:mk.map((_,i)=>palette[i%palette.length]),pointRadius:5}]},options:{responsive:true,maintainAspectRatio:false}});const cg=group(arr,'concept');$('conceptReport').innerHTML=cg.length?cg.map(([k,v],i)=>`<div style="margin:10px 0"><div style="display:flex;justify-content:space-between"><span>${esc(k)}</span><b>${euro(v)}</b></div><div class="bar"><i style="width:${total?Math.min(100,v/total*100):0}%;background:${palette[i%palette.length]}"></i></div></div>`).join(''):'<p class="muted">Sin datos.</p>'}
 function renderAll(){summary();renderList();renderReports()}
 function backupData(){return Promise.all([idbAll('expenses'),idbAll('photos')]).then(async([es,ps])=>{const photos=[];for(const p of ps){photos.push({id:p.id,type:p.blob.type,size:p.blob.size,data:Array.from(new Uint8Array(await p.blob.arrayBuffer()))})}return {version:2,exportedAt:new Date().toISOString(),expenses:es,photos}})}
-async function downloadBackup(){const data=await backupData();const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));a.download='mis_gastos_backup_'+todayStr()+'.json';a.click()}
+async function downloadBackup(){
+ try {
+  const data=await backupData();
+  if(!data.expenses || data.expenses.length===0){alert('La copia local contiene 0 gastos. No se ha descargado nada para evitar crear una copia vacía.');return;}
+  const json=JSON.stringify(data);
+  const blob=new Blob([json],{type:'application/json;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='mis_gastos_backup_'+todayStr()+'.json';
+  a.style.display='none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  alert('Copia preparada: '+data.expenses.length+' gastos y '+data.photos.length+' fotografías. Comprueba la carpeta Descargas.');
+ } catch(e){console.error('Error al crear copia JSON:',e);alert('No se pudo crear la copia JSON: '+(e.message||e));}
+}
 $('backup').onclick=downloadBackup;$('backup2').onclick=downloadBackup;
 $('restore').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());for(const g of d.expenses||[])await idbPut('expenses',g);for(const p of d.photos||[])await idbPut('photos',{id:p.id,blob:new Blob([new Uint8Array(p.data)],{type:p.type})});await load();renderAll();alert('Copia restaurada.')}catch(err){alert('La copia no es válida.')}};
 $('xlsx').onclick=()=>{const rows=filtered().map(g=>({Fecha:g.date,Comercio:g.merchant,Importe:g.amount,Concepto:g.concept,Tipo:g.type}));const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Gastos');XLSX.writeFile(wb,'mis_gastos.xlsx')};$('csv').onclick=()=>{const rows=[['Fecha','Comercio','Importe','Concepto','Tipo'],...filtered().map(g=>[g.date,g.merchant,g.amount,g.concept,g.type])];const c=rows.map(r=>r.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(';')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+c],{type:'text/csv;charset=utf-8'}));a.download='mis_gastos.csv';a.click()};
