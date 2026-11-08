@@ -36,7 +36,7 @@
 
 <main id="settings" class="panel hidden">
 <section class="card"><h2>⚙️ Ajustes y sincronización</h2><p>Para que iPhone y PC tengan exactamente los mismos gastos, conecta Supabase. Una vez iniciada la sesión, la app sincroniza automáticamente al entrar, guardar, editar y al pulsar sincronizar.</p><div id="supabaseForm"><div class="field"><label>Supabase Project URL</label><input id="sbUrl" placeholder="https://xxxxx.supabase.co"></div><div class="field" style="margin-top:10px"><label>Supabase Publishable Key</label><input id="sbKey" placeholder="sb_publishable_..."></div><div class="row" style="margin-top:12px"><button class="btn primary" id="saveSb">Guardar conexión</button><button class="btn secondary" id="testSb">Probar conexión</button></div></div><div id="authBox" class="hidden"><hr><h3>Cuenta</h3><div class="field"><label>Email</label><input id="email" type="email"></div><div class="field" style="margin-top:8px"><label>Contraseña</label><input id="password" type="password"></div><div class="row" style="margin-top:10px"><button class="btn primary" id="signup">Crear cuenta</button><button class="btn secondary" id="login">Entrar</button><button class="btn danger" id="logout">Salir</button></div><p id="authMsg" class="muted"></p><button class="btn primary" id="syncNow">☁️ Sincronizar ahora</button></div></section>
-<section class="card"><h3>Datos</h3><p class="muted">Puedes hacer una copia completa en JSON. Incluye gastos y las fotos unidas de cada ticket.</p><button class="btn secondary" id="backup2">💾 Descargar copia completa</button></section>
+<section class="card"><h3>Datos</h3><p class="muted">Puedes hacer una copia completa en JSON. Incluye gastos y las fotos unidas de cada ticket.</p><button class="btn secondary" id="backup2" type="button">💾 Descargar copia completa</button><p id="backupStatus" class="muted" role="status" aria-live="polite" style="margin-top:10px">La copia se preparará en este dispositivo.</p></section>
 </main>
 <div class="footer">Mis Gastos · versión 9 · sincronización con errores visibles.</div>
 </div>
@@ -147,13 +147,47 @@ function group(arr,key){return Object.entries(arr.reduce((o,g)=>{const k=g[key]|
 function selectedReport(){const p=$('reportPeriod').value;if(p==='month')return monthExpenses($('reportMonth').value||monthStr());if(p==='year'){const y=String($('reportYear').value||new Date().getFullYear());return gastos.filter(g=>g.date.startsWith(y+'-'))}if(p==='custom'){const from=$('reportFrom').value,to=$('reportTo').value;return gastos.filter(g=>(!from||g.date>=from)&&(!to||g.date<=to))}return gastos}
 function renderReports(){const p=$('reportPeriod').value;$('customReportDates').style.display=p==='custom'?'grid':'none';$('reportMonth').disabled=p!=='month';$('reportYear').disabled=p!=='year';const arr=selectedReport(),total=arr.reduce((a,g)=>a+g.amount,0);$('reportTotal').textContent=euro(total);$('reportCount').textContent=arr.length;$('reportAvg').textContent=euro(arr.length?total/arr.length:0);const tg=group(arr,'type');const palette=['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0891b2','#db2777','#65a30d','#ea580c','#4f46e5','#0d9488','#9333ea'];if(typeChart)typeChart.destroy();typeChart=new Chart($('typeChart'),{type:'bar',data:{labels:tg.map(x=>x[0]),datasets:[{label:'€',data:tg.map(x=>x[1]),backgroundColor:tg.map((_,i)=>palette[i%palette.length]),borderColor:tg.map((_,i)=>palette[i%palette.length]),borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}});const months={};arr.forEach(g=>{const m=g.date.slice(0,7);months[m]=(months[m]||0)+g.amount});const mk=Object.keys(months).sort();if(monthChart)monthChart.destroy();monthChart=new Chart($('monthChart'),{type:'line',data:{labels:mk,datasets:[{label:'€',data:mk.map(k=>months[k]),tension:.25,borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.12)',pointBackgroundColor:mk.map((_,i)=>palette[i%palette.length]),pointBorderColor:mk.map((_,i)=>palette[i%palette.length]),pointRadius:5}]},options:{responsive:true,maintainAspectRatio:false}});const cg=group(arr,'concept');$('conceptReport').innerHTML=cg.length?cg.map(([k,v],i)=>`<div style="margin:10px 0"><div style="display:flex;justify-content:space-between"><span>${esc(k)}</span><b>${euro(v)}</b></div><div class="bar"><i style="width:${total?Math.min(100,v/total*100):0}%;background:${palette[i%palette.length]}"></i></div></div>`).join(''):'<p class="muted">Sin datos.</p>'}
 function renderAll(){summary();renderList();renderReports()}
-function backupData(){return Promise.all([idbAll('expenses'),idbAll('photos')]).then(async([es,ps])=>{const photos=[];for(const p of ps){photos.push({id:p.id,type:p.blob.type,size:p.blob.size,data:Array.from(new Uint8Array(await p.blob.arrayBuffer()))})}return {version:2,exportedAt:new Date().toISOString(),expenses:es,photos}})}
+
+function bytesToBase64(bytes){
+ let binary='';
+ const chunk=0x8000;
+ for(let i=0;i<bytes.length;i+=chunk){
+  binary+=String.fromCharCode.apply(null,bytes.subarray(i,Math.min(i+chunk,bytes.length)));
+ }
+ return btoa(binary);
+}
 async function downloadBackup(){
- try {
-  const data=await backupData();
-  if(!data.expenses || data.expenses.length===0){alert('La copia local contiene 0 gastos. No se ha descargado nada para evitar crear una copia vacía.');return;}
-  const json=JSON.stringify(data);
+ const status=$('backupStatus');
+ const btn=$('backup2');
+ const setStatus=(msg)=>{if(status)status.textContent=msg;};
+ try{
+  if(btn)btn.disabled=true;
+  setStatus('Leyendo gastos y fotografías del dispositivo…');
+  const [expenses,photos]=await Promise.all([idbAll('expenses'),idbAll('photos')]);
+  if(!expenses.length){
+   setStatus('No se ha creado la copia: este dispositivo no contiene gastos locales.');
+   alert('No se ha creado la copia porque este dispositivo contiene 0 gastos locales. No se ha descargado ningún archivo.');
+   return;
+  }
+  const photoItems=[];
+  let totalBytes=0;
+  for(let i=0;i<photos.length;i++){
+   const p=photos[i];
+   if(!p || !p.blob)continue;
+   const ab=await p.blob.arrayBuffer();
+   const bytes=new Uint8Array(ab);
+   totalBytes+=bytes.byteLength;
+   photoItems.push({id:p.id,type:p.blob.type||'application/octet-stream',size:bytes.byteLength,data:bytesToBase64(bytes)});
+   if((i+1)%5===0 || i===photos.length-1){
+    setStatus('Preparando fotografía '+(i+1)+' de '+photos.length+'…');
+    await new Promise(resolve=>setTimeout(resolve,0));
+   }
+  }
+  const payload={version:3,format:'mis-gastos-json-base64',exportedAt:new Date().toISOString(),expenses,photos:photoItems};
+  setStatus('Generando archivo JSON…');
+  const json=JSON.stringify(payload);
   const blob=new Blob([json],{type:'application/json;charset=utf-8'});
+  if(!blob.size)throw new Error('El archivo generado está vacío.');
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
   a.href=url;
@@ -162,12 +196,23 @@ async function downloadBackup(){
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),60000);
-  alert('Copia preparada: '+data.expenses.length+' gastos y '+data.photos.length+' fotografías. Comprueba la carpeta Descargas.');
- } catch(e){console.error('Error al crear copia JSON:',e);alert('No se pudo crear la copia JSON: '+(e.message||e));}
+  setTimeout(()=>URL.revokeObjectURL(url),120000);
+  const mb=(totalBytes/1024/1024).toFixed(1);
+  const msg='Descarga solicitada: '+expenses.length+' gastos, '+photoItems.length+' fotografías ('+mb+' MB de imágenes). Comprueba Descargas de Chrome.';
+  setStatus(msg);
+  alert(msg);
+ }catch(e){
+  console.error('Error al crear copia JSON:',e);
+  const msg='No se pudo crear la copia JSON: '+(e && e.message ? e.message : String(e));
+  setStatus(msg);
+  alert(msg);
+ }finally{
+  if(btn)btn.disabled=false;
+ }
 }
-$('backup').onclick=downloadBackup;$('backup2').onclick=downloadBackup;
-$('restore').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());for(const g of d.expenses||[])await idbPut('expenses',g);for(const p of d.photos||[])await idbPut('photos',{id:p.id,blob:new Blob([new Uint8Array(p.data)],{type:p.type})});await load();renderAll();alert('Copia restaurada.')}catch(err){alert('La copia no es válida.')}};
+$('backup').addEventListener('click',downloadBackup);
+$('backup2').addEventListener('click',downloadBackup);
+$('restore').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());for(const g of d.expenses||[])await idbPut('expenses',g);for(const p of d.photos||[]){let bytes;if(typeof p.data==='string'){const raw=atob(p.data);bytes=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);}else{bytes=new Uint8Array(p.data||[]);}await idbPut('photos',{id:p.id,blob:new Blob([bytes],{type:p.type||'application/octet-stream'})});}await load();renderAll();alert('Copia restaurada: '+(d.expenses||[]).length+' gastos y '+(d.photos||[]).length+' fotografías.')}catch(err){console.error('Error restaurando copia:',err);alert('La copia no es válida: '+(err.message||err));}};
 $('xlsx').onclick=()=>{const rows=filtered().map(g=>({Fecha:g.date,Comercio:g.merchant,Importe:g.amount,Concepto:g.concept,Tipo:g.type}));const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Gastos');XLSX.writeFile(wb,'mis_gastos.xlsx')};$('csv').onclick=()=>{const rows=[['Fecha','Comercio','Importe','Concepto','Tipo'],...filtered().map(g=>[g.date,g.merchant,g.amount,g.concept,g.type])];const c=rows.map(r=>r.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(';')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+c],{type:'text/csv;charset=utf-8'}));a.download='mis_gastos.csv';a.click()};
 ['filterFrom','filterTo','filterType','search'].forEach(id=>$(id).addEventListener('input',renderList));$('clearFilters').onclick=()=>{['filterFrom','filterTo','search'].forEach(id=>$(id).value='');$('filterType').value='';renderList()};['reportPeriod','reportMonth','reportYear','reportFrom','reportTo'].forEach(id=>$(id).addEventListener('input',renderReports));
 function openCurrentMonthExpenses(){const m=monthStr();$('filterFrom').value=m+'-01';const [y,mo]=m.split('-').map(Number);$('filterTo').value=m+'-'+String(new Date(y,mo,0).getDate()).padStart(2,'0');$('filterType').value='';$('search').value='';document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab==='list'));document.querySelectorAll('.panel').forEach(x=>x.classList.add('hidden'));$('list').classList.remove('hidden');renderList()}
