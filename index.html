@@ -156,59 +156,62 @@ function bytesToBase64(bytes){
  }
  return btoa(binary);
 }
+
 async function downloadBackup(){
  const status=$('backupStatus');
  const btn=$('backup2');
  const setStatus=(msg)=>{if(status)status.textContent=msg;};
  try{
   if(btn)btn.disabled=true;
-  setStatus('Leyendo gastos y fotografías del dispositivo…');
+  setStatus('Leyendo gastos y fotografías…');
   const [expenses,photos]=await Promise.all([idbAll('expenses'),idbAll('photos')]);
   if(!expenses.length){
    setStatus('No se ha creado la copia: este dispositivo no contiene gastos locales.');
-   alert('No se ha creado la copia porque este dispositivo contiene 0 gastos locales. No se ha descargado ningún archivo.');
+   alert('No se ha creado la copia porque este dispositivo contiene 0 gastos locales.');
    return;
   }
-  const photoItems=[];
-  let totalBytes=0;
+  // Construye el JSON como fragmentos Blob para evitar crear una única cadena gigante.
+  const parts=[];
+  const header={version:3,format:'mis-gastos-json-base64',exportedAt:new Date().toISOString(),expenses,photos:[]};
+  // Separa el encabezado para poder añadir cada foto como un fragmento JSON individual.
+  // La construcción explícita evita depender del orden de propiedades del objeto.
+  parts.push('{"version":3,"format":"mis-gastos-json-base64","exportedAt":');
+  parts.push(JSON.stringify(header.exportedAt));
+  parts.push(',"expenses":',JSON.stringify(expenses),',"photos":[');
+  let count=0,totalBytes=0;
   for(let i=0;i<photos.length;i++){
-   const p=photos[i];
-   if(!p || !p.blob)continue;
-   const ab=await p.blob.arrayBuffer();
-   const bytes=new Uint8Array(ab);
+   const item=photos[i];
+   if(!item||!item.blob)continue;
+   const bytes=new Uint8Array(await item.blob.arrayBuffer());
    totalBytes+=bytes.byteLength;
-   photoItems.push({id:p.id,type:p.blob.type||'application/octet-stream',size:bytes.byteLength,data:bytesToBase64(bytes)});
-   if((i+1)%5===0 || i===photos.length-1){
-    setStatus('Preparando fotografía '+(i+1)+' de '+photos.length+'…');
-    await new Promise(resolve=>setTimeout(resolve,0));
-   }
+   const photo={id:item.id,type:item.blob.type||'application/octet-stream',size:bytes.byteLength,data:bytesToBase64(bytes)};
+   if(count)parts.push(',');
+   parts.push(JSON.stringify(photo));
+   count++;
+   setStatus('Preparando fotografía '+(i+1)+' de '+photos.length+'…');
+   if(i%2===1)await new Promise(resolve=>setTimeout(resolve,0));
   }
-  const payload={version:3,format:'mis-gastos-json-base64',exportedAt:new Date().toISOString(),expenses,photos:photoItems};
-  setStatus('Generando archivo JSON…');
-  const json=JSON.stringify(payload);
-  const blob=new Blob([json],{type:'application/json;charset=utf-8'});
+  parts.push(']}');
+  setStatus('Montando el archivo JSON sin concatenar todas las fotografías…');
+  const blob=new Blob(parts,{type:'application/json;charset=utf-8'});
   if(!blob.size)throw new Error('El archivo generado está vacío.');
   const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;
-  a.download='mis_gastos_backup_'+todayStr()+'.json';
-  a.style.display='none';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),120000);
-  const mb=(totalBytes/1024/1024).toFixed(1);
-  const msg='Descarga solicitada: '+expenses.length+' gastos, '+photoItems.length+' fotografías ('+mb+' MB de imágenes). Comprueba Descargas de Chrome.';
+  const link=document.createElement('a');
+  link.href=url;
+  link.download='mis_gastos_backup_'+todayStr()+'.json';
+  link.style.display='none';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),180000);
+  const msg='Copia preparada: '+expenses.length+' gastos y '+count+' fotografías ('+(totalBytes/1024/1024).toFixed(1)+' MB de imágenes). Comprueba Descargas de Chrome.';
   setStatus(msg);
   alert(msg);
- }catch(e){
-  console.error('Error al crear copia JSON:',e);
-  const msg='No se pudo crear la copia JSON: '+(e && e.message ? e.message : String(e));
-  setStatus(msg);
-  alert(msg);
- }finally{
-  if(btn)btn.disabled=false;
- }
+ }catch(err){
+  console.error('Error al crear copia JSON:',err);
+  const msg='No se pudo crear la copia JSON: '+(err&&err.message?err.message:String(err));
+  setStatus(msg);alert(msg);
+ }finally{if(btn)btn.disabled=false;}
 }
 $('backup').addEventListener('click',downloadBackup);
 $('backup2').addEventListener('click',downloadBackup);
